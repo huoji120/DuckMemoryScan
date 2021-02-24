@@ -1,6 +1,9 @@
 # DuckMemoryScan
 一个简单寻找无文件落地后门的工具,由huoji花了1天编写,编写时间2021-02-24
 
+#运行截图
+![image](https://raw.githubusercontent.com/huoji120/DuckMemoryScan/master/%E6%BC%94%E7%A4%BA%E5%9B%BE%E7%89%87.png)
+
 # 功能列表
 1. HWBP hook检测 检测线程中所有疑似被hwb挂钩
 2. 内存免杀shellcode检测(metasploit,Cobaltstrike完全检测)
