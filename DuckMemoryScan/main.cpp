@@ -266,7 +266,7 @@ void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName) {
 							FoundNum++;
 						}
 						if (FoundNum > 1) {
-							printf("\t => [进程检测] 检测到额外的可执行区段(.rdata免杀 or 加壳程序) 进程名 %ws 进程id %d 模块名 %ws 区段名字 %s \n", pMoudleName, moduleEntry.szExePath, pID, SectionHeader[i].Name);
+							printf("\t => [进程检测] 检测到额外的可执行区段(.rdata免杀 or 加壳程序) 进程名 %ws 路径 %ws 进程id %d\n", pMoudleName, moduleEntry.szExePath, pID);
 							break;
 						}
 					}
