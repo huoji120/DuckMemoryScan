@@ -11,6 +11,8 @@
 #pragma comment(lib,"dbghelp.lib")
 #include "tlhelp32.h"
 #include "CdigitalSig.h"
+_ZwQueryVirtualMemory fnZwQueryVirtualMemory = NULL;
+
 BOOL Is64BitPorcess(HANDLE hProcess)
 {
 	BOOL bIsWow64 = false;
@@ -107,19 +109,16 @@ DWORD64 GetProcessMoudleHandle(DWORD pid) {
 	} while (Module32Next(handle, &moduleEntry));
 	return 0;
 }
-bool CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HANDLE Tid) {
+
+bool CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HANDLE Tid, BOOL isRipBackTrack) {
 
 	DWORD64 ReadNum = 0;
 	MEMORY_BASIC_INFORMATION mbi = { 0 };
-
-	if (VirtualQueryEx(pHandle, (LPCVOID)pAddress, &mbi, sizeof(mbi)))
-	{
+	if (fnZwQueryVirtualMemory(pHandle, (PVOID)pAddress, MemoryBasicInformation, &mbi, sizeof(mbi), &ReadNum) >= 0) {
 		if (mbi.AllocationBase) {
 			if (mbi.Type != MEM_IMAGE) {
-				if (mbi.AllocationProtect & PAGE_EXECUTE ||
-					mbi.AllocationProtect & PAGE_EXECUTE_READ ||
-					mbi.AllocationProtect & PAGE_EXECUTE_READWRITE ||
-					mbi.AllocationProtect & PAGE_EXECUTE_WRITECOPY)
+				BOOL CheckExcuteFlag = mbi.AllocationProtect & PAGE_EXECUTE || mbi.AllocationProtect & PAGE_EXECUTE_READ || mbi.AllocationProtect & PAGE_EXECUTE_READWRITE || mbi.AllocationProtect & PAGE_EXECUTE_WRITECOPY;
+				if (CheckExcuteFlag)
 				{
 					printf("\t => [线程堆栈回溯] 检测到未知内存区域[VirtualAlloc免杀?] 地址 %p PID %d TID %d \n", pAddress, pID, Tid);
 					char PEStack[0x2];
@@ -128,6 +127,10 @@ bool CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HAN
 							printf("\t => [!!!线程堆栈回溯!!!] 检测到内存加载程序 线程地址 %p PID %d TID %d 内存加载模块地址: %p\n", pAddress, pID, Tid, mbi.BaseAddress);
 						}
 					}
+					return true;
+				}
+				else if (isRipBackTrack && mbi.AllocationProtect & PAGE_READONLY && mbi.AllocationProtect & PAGE_NOACCESS) {
+					printf("\t => [线程堆栈回溯] 检测到线程曾在不可执行的代码区域执行过[请检查是否有Rootkit存在或者是否被Hook] 地址 %p PID %d TID %d \n", pAddress, pID, Tid);
 					return true;
 				}
 			}
@@ -169,7 +172,7 @@ void ThreadStackWalk() {
 									//hwbp hook
 									printf("\t => [线程堆栈回溯] 检测到HWBP Hook PID %d TID %d \n", te32.th32OwnerProcessID, te32.th32ThreadID);
 								}
-								CheckThreadAddressIsExcute(context.Rip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID);
+								CheckThreadAddressIsExcute(context.Rip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
 								StackFarmeEx.AddrPC.Offset = context.Rip;
 								StackFarmeEx.AddrPC.Mode = AddrModeFlat;
 								StackFarmeEx.AddrStack.Offset = context.Rsp;
@@ -183,7 +186,9 @@ void ThreadStackWalk() {
 										break;
 									if (StackFarmeEx.AddrFrame.Offset == 0)
 										break;
-									CheckThreadAddressIsExcute(StackFarmeEx.AddrPC.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrPC.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrReturn.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, FALSE);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrStack.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, FALSE);
 								}
 							}
 						} else {
@@ -197,7 +202,7 @@ void ThreadStackWalk() {
 									printf("\t => [线程堆栈回溯] 检测到HWBP Hook PID %d TID %d \n", te32.th32OwnerProcessID, te32.th32ThreadID);
 								}
 								
-								CheckThreadAddressIsExcute(context.Eip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID);
+								CheckThreadAddressIsExcute(context.Eip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
 								StackFarmeEx.AddrPC.Offset = context.Eip;
 								StackFarmeEx.AddrPC.Mode = AddrModeFlat;
 								StackFarmeEx.AddrStack.Offset = context.Esp;
@@ -211,7 +216,9 @@ void ThreadStackWalk() {
 										break;
 									if (StackFarmeEx.AddrFrame.Offset == 0)
 										break;
-									CheckThreadAddressIsExcute(StackFarmeEx.AddrPC.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrPC.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrReturn.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, FALSE);
+									CheckThreadAddressIsExcute(StackFarmeEx.AddrStack.Offset, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, FALSE);
 								}
 							}
 						}
@@ -244,20 +251,6 @@ void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName) {
 				if (AllocBuff[0] == 'M' && AllocBuff[1] == 'Z') {
 					PIMAGE_DOS_HEADER CopyDosHead = (PIMAGE_DOS_HEADER)AllocBuff;
 					PIMAGE_NT_HEADERS CopyNthead = (PIMAGE_NT_HEADERS)((LPBYTE)AllocBuff + CopyDosHead->e_lfanew);
-					/*
-					DWORD64 BaseOfCode = 0;
-					DWORD64 SizeOfCode = 0;
-					if (CopyNthead->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64) {
-						PIMAGE_NT_HEADERS64 CopyNthead64 = (PIMAGE_NT_HEADERS64)CopyNthead;
-						BaseOfCode = CopyNthead64->OptionalHeader.BaseOfCode;
-						SizeOfCode = CopyNthead64->OptionalHeader.SizeOfCode;
-					}
-					else {
-						PIMAGE_NT_HEADERS32 CopyNthead32 = (PIMAGE_NT_HEADERS32)CopyNthead;
-						BaseOfCode = CopyNthead32->OptionalHeader.BaseOfCode;
-						SizeOfCode = CopyNthead32->OptionalHeader.SizeOfCode;
-					}
-					*/
 					PIMAGE_SECTION_HEADER SectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)CopyNthead + sizeof(CopyNthead->Signature) + sizeof(CopyNthead->FileHeader) + CopyNthead->FileHeader.SizeOfOptionalHeader);
 					int FoundNum = 0;
 					for (WORD i = 0; i < CopyNthead->FileHeader.NumberOfSections; i++)
@@ -367,6 +360,15 @@ int main()
 		printf("权限提升失败,请以管理员身份运行 \n");
 		system("pause");
 		return 0;
+	}
+	if (fnZwQueryVirtualMemory == NULL) {
+		fnZwQueryVirtualMemory = (_ZwQueryVirtualMemory)GetProcAddress(GetModuleHandleA("ntdll.dll"),"ZwQueryVirtualMemory");
+		if (fnZwQueryVirtualMemory == NULL)
+		{
+			printf("没有找到ZwQueryVirtualMemory函数, 请修改源码ZwQueryVirtualMemory => VirtualQueryEx \n");
+			system("pause");
+			return 0;
+		}
 	}
 	printf("线程堆栈回溯检测 ... \n");
 	ThreadStackWalk();

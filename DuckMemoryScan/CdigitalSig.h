@@ -10,6 +10,13 @@
 #include <mscat.h>
 #pragma comment (lib, "wintrust")
 #pragma comment (lib, "crypt32.lib")
+typedef enum _MEMORY_INFORMATION_CLASS {
+	MemoryBasicInformation,
+	MemoryWorkingSetList,
+	MemorySectionName,
+	MemoryBasicVlmInformation
+} MEMORY_INFORMATION_CLASS;
+typedef NTSTATUS(WINAPI* _ZwQueryVirtualMemory) (HANDLE ProcessHandle, PVOID BaseAddress, MEMORY_INFORMATION_CLASS MemoryInformationClass, PVOID MemoryInformation, SIZE_T MemoryInformationLength, PSIZE_T ReturnLength);
 
 static GUID WINTRUST_ACTION_GENERIC_VERIFY_V2 = {0xaac56b, 0xcd44, 0x11d0, 0x8c, 0xc2, 0x0, 0xc0, 0x4f, 0xc2, 0x95, 0xee};
 enum SignState
