@@ -5,7 +5,7 @@
 ![image](https://raw.githubusercontent.com/huoji120/DuckMemoryScan/master/%E6%BC%94%E7%A4%BA%E5%9B%BE%E7%89%87.png)
 ![image](https://raw.githubusercontent.com/huoji120/DuckMemoryScan/master/CS%e6%b5%8b%e8%af%95%e5%9b%be%e7%89%87.png)
 # 功能列表
-1. HWBP hook检测 检测线程中所有疑似被hwb挂钩
+1. HWBP hook检测 检测线程中所有疑似被hwbp隐形挂钩
 2. 内存免杀shellcode检测(metasploit,Cobaltstrike完全检测)
 3. 可疑进程检测(主要针对有逃避性质的进程[如过期签名与多各可执行区段])
 4. 无文件落地木马检测(检测所有已知内存加载木马)
@@ -26,7 +26,7 @@
 # 使用方式
 编译 运行 得到信息列表
 
-#检测出疑似后门后怎么做?
+# 检测出疑似后门后怎么做?
 使用其他工具比如Scylla dump内存做进一步分析,本工具不打算做内存dump系列操作(时间有限不想重复造轮子)
 
 # 如何让堆栈回溯更精准
