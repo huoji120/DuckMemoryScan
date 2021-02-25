@@ -232,7 +232,7 @@ void ThreadStackWalk() {
 		CloseHandle(hThreadSnap);
 	}
 }
-void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName) {
+void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName,BOOL pCheckMoudle) {
 
 	MODULEENTRY32 moduleEntry;
 	HANDLE handle = NULL;
@@ -246,6 +246,13 @@ void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName) {
 			return;
 		}
 		do {
+			if (pCheckMoudle) {
+				CdigitalSig DigitalSig(moduleEntry.szExePath);
+				DWORD dDigitalState = DigitalSig.GetDigitalState();
+				if (dDigitalState != DIGITAL_SIGSTATE_VALID) {
+					printf("\t => [模块扫描] 检测到可疑模块(也许是误报) 路径 %ws 进程名字 %ws pid %d \n", moduleEntry.szExePath, pMoudleName, pID);
+				}
+			}
 			DWORD64 ReadNum = 0;
 			if (ReadProcessMemory(pHandle, moduleEntry.modBaseAddr, AllocBuff, 0x200, &ReadNum)) {
 				if (AllocBuff[0] == 'M' && AllocBuff[1] == 'Z') {
@@ -286,7 +293,6 @@ void ProcessStackWalk() {
 		//打印进程名和进程ID
 		HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pe32.th32ProcessID);
 		if (hProcess) {
-			WalkProcessMoudle(pe32.th32ProcessID, hProcess, pe32.szExeFile);
 			WCHAR szImagePath[MAX_PATH];
 			WCHAR pszFullPath[MAX_PATH];
 			if (GetProcessImageFileName(hProcess, szImagePath, MAX_PATH))
@@ -298,6 +304,8 @@ void ProcessStackWalk() {
 					if (dDigitalState == DIGITAL_SIGSTATE_REVOKED || dDigitalState == DIGITAL_SIGSTATE_EXPIRE) {
 						printf("\t => [进程扫描] 检测到可疑签名进程 路径 %ws static %d \n", pszFullPath, dDigitalState);
 					}
+					WalkProcessMoudle(pe32.th32ProcessID, hProcess, pe32.szExeFile, dDigitalState == DIGITAL_SIGSTATE_VALID);
+
 				}
 			}
 			CloseHandle(hProcess);
