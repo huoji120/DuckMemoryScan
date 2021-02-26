@@ -10,6 +10,7 @@
 #include <mscat.h>
 #pragma comment (lib, "wintrust")
 #pragma comment (lib, "crypt32.lib")
+#define PE_BUFF_SIZE 0x1337
 typedef enum _MEMORY_INFORMATION_CLASS {
 	MemoryBasicInformation,
 	MemoryWorkingSetList,

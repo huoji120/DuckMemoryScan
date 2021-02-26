@@ -109,8 +109,50 @@ DWORD64 GetProcessMoudleHandle(DWORD pid) {
 	} while (Module32Next(handle, &moduleEntry));
 	return 0;
 }
+bool CheckThreadIsInCodeSection(DWORD64 pAddress, HANDLE pHandle, DWORD64 pID) {
+	bool result = false;
+	MODULEENTRY32 moduleEntry;
+	HANDLE handle = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pID);
+	ZeroMemory(&moduleEntry, sizeof(MODULEENTRY32));
+	moduleEntry.dwSize = sizeof(MODULEENTRY32);
+	char* AllocBuff = (char*)VirtualAlloc(NULL, PE_BUFF_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (AllocBuff) {
+		if (!Module32First(handle, &moduleEntry)) {
+			CloseHandle(handle);
+			return false;
+		}
+		do {
+			DWORD64 ReadNum = 0;
+			if (ReadProcessMemory(pHandle, moduleEntry.modBaseAddr, AllocBuff, PE_BUFF_SIZE, &ReadNum)) {
+				if (AllocBuff[0] == 'M' && AllocBuff[1] == 'Z') {
+					PIMAGE_DOS_HEADER CopyDosHead = (PIMAGE_DOS_HEADER)AllocBuff;
+					PIMAGE_NT_HEADERS CopyNthead = (PIMAGE_NT_HEADERS)((LPBYTE)AllocBuff + CopyDosHead->e_lfanew);
+					DWORD64 BaseOfCode = 0;
+					DWORD64 SizeOfCode = 0;
+					if (CopyNthead->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64) {
+						PIMAGE_NT_HEADERS64 CopyNthead64 = (PIMAGE_NT_HEADERS64)CopyNthead;
+						BaseOfCode = CopyNthead64->OptionalHeader.BaseOfCode;
+						SizeOfCode = CopyNthead64->OptionalHeader.SizeOfCode;
+					}
+					else {
+						PIMAGE_NT_HEADERS32 CopyNthead32 = (PIMAGE_NT_HEADERS32)CopyNthead;
+						BaseOfCode = CopyNthead32->OptionalHeader.BaseOfCode;
+						SizeOfCode = CopyNthead32->OptionalHeader.SizeOfCode;
+					}
+					if (pAddress >= (DWORD64)moduleEntry.modBaseAddr + BaseOfCode && pAddress <= (DWORD64)moduleEntry.modBaseAddr + BaseOfCode + SizeOfCode) {
+						result = true;
+						break;
+					}
+				}
+			}
 
-bool CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HANDLE Tid, BOOL isRipBackTrack) {
+		} while (Module32Next(handle, &moduleEntry));
+		VirtualFree(AllocBuff, 0, MEM_RELEASE);
+	}
+	CloseHandle(handle);
+	return result;
+}
+void CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HANDLE Tid, BOOL isRipBackTrack) {
 
 	DWORD64 ReadNum = 0;
 	MEMORY_BASIC_INFORMATION mbi = { 0 };
@@ -127,16 +169,14 @@ bool CheckThreadAddressIsExcute(DWORD64 pAddress,HANDLE pHandle, HANDLE pID, HAN
 							printf("\t => [!!!线程堆栈回溯!!!] 检测到内存加载程序 线程地址 %p PID %d TID %d 内存加载模块地址: %p\n", pAddress, pID, Tid, mbi.BaseAddress);
 						}
 					}
-					return true;
 				}
 				else if (isRipBackTrack && mbi.AllocationProtect & PAGE_READONLY && mbi.AllocationProtect & PAGE_NOACCESS) {
 					printf("\t => [线程堆栈回溯] 检测到线程曾在不可执行的代码区域执行过[请检查是否有Rootkit存在或者是否被Hook] 地址 %p PID %d TID %d \n", pAddress, pID, Tid);
-					return true;
 				}
 			}
 		}
 	}
-	return false;
+	return;
 }
 void ThreadStackWalk() {
 	HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
@@ -173,6 +213,11 @@ void ThreadStackWalk() {
 									printf("\t => [线程堆栈回溯] 检测到HWBP Hook PID %d TID %d \n", te32.th32OwnerProcessID, te32.th32ThreadID);
 								}
 								CheckThreadAddressIsExcute(context.Rip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
+								/*
+								if (CheckThreadIsInCodeSection(context.Rip, hProcess, (DWORD64)te32.th32OwnerProcessID) == false){
+									__debugbreak();
+								}
+								*/
 								StackFarmeEx.AddrPC.Offset = context.Rip;
 								StackFarmeEx.AddrPC.Mode = AddrModeFlat;
 								StackFarmeEx.AddrStack.Offset = context.Rsp;
@@ -201,8 +246,13 @@ void ThreadStackWalk() {
 									//hwbp hook
 									printf("\t => [线程堆栈回溯] 检测到HWBP Hook PID %d TID %d \n", te32.th32OwnerProcessID, te32.th32ThreadID);
 								}
-								
 								CheckThreadAddressIsExcute(context.Eip, hProcess, (HANDLE)te32.th32OwnerProcessID, (HANDLE)te32.th32ThreadID, TRUE);
+								/*
+								if (CheckThreadIsInCodeSection(context.Eip, hProcess, (DWORD64)te32.th32OwnerProcessID) == false) {
+									__debugbreak();
+								}
+								*/
+
 								StackFarmeEx.AddrPC.Offset = context.Eip;
 								StackFarmeEx.AddrPC.Mode = AddrModeFlat;
 								StackFarmeEx.AddrStack.Offset = context.Esp;
@@ -233,13 +283,14 @@ void ThreadStackWalk() {
 	}
 }
 void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName,BOOL pCheckMoudle) {
-
+	if (pCheckMoudle == false)
+		return;
 	MODULEENTRY32 moduleEntry;
 	HANDLE handle = NULL;
 	handle = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pID);
 	ZeroMemory(&moduleEntry, sizeof(MODULEENTRY32));
 	moduleEntry.dwSize = sizeof(MODULEENTRY32);
-	char* AllocBuff = (char*)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	char* AllocBuff = (char*)VirtualAlloc(NULL, PE_BUFF_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	if (AllocBuff) {
 		if (!Module32First(handle, &moduleEntry)) {
 			CloseHandle(handle);
@@ -253,25 +304,49 @@ void WalkProcessMoudle(DWORD pID,HANDLE pHandle,WCHAR* pMoudleName,BOOL pCheckMo
 					printf("\t => [模块扫描] 检测到可疑模块(也许是误报) 路径 %ws 进程名字 %ws pid %d \n", moduleEntry.szExePath, pMoudleName, pID);
 				}
 			}
+			/*
 			DWORD64 ReadNum = 0;
-			if (ReadProcessMemory(pHandle, moduleEntry.modBaseAddr, AllocBuff, 0x200, &ReadNum)) {
+			if (ReadProcessMemory(pHandle, moduleEntry.modBaseAddr, AllocBuff, PE_BUFF_SIZE, &ReadNum)) {
 				if (AllocBuff[0] == 'M' && AllocBuff[1] == 'Z') {
 					PIMAGE_DOS_HEADER CopyDosHead = (PIMAGE_DOS_HEADER)AllocBuff;
 					PIMAGE_NT_HEADERS CopyNthead = (PIMAGE_NT_HEADERS)((LPBYTE)AllocBuff + CopyDosHead->e_lfanew);
-					PIMAGE_SECTION_HEADER SectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)CopyNthead + sizeof(CopyNthead->Signature) + sizeof(CopyNthead->FileHeader) + CopyNthead->FileHeader.SizeOfOptionalHeader);
+					DWORD64 BaseOfCode = 0;
+					DWORD64 SizeOfCode = 0;
+					DWORD64 SizeSignature = 0;
+					DWORD64 SizeFileHeader = 0;
+					DWORD64 SizeFileHeaderSizeOfOptionalHeader = 0;
+					if (CopyNthead->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64) {
+						PIMAGE_NT_HEADERS64 CopyNthead64 = (PIMAGE_NT_HEADERS64)CopyNthead;
+						BaseOfCode = CopyNthead64->OptionalHeader.BaseOfCode;
+						SizeOfCode = CopyNthead64->OptionalHeader.SizeOfCode;
+						SizeSignature = sizeof(CopyNthead64->Signature);
+						SizeFileHeader = sizeof(CopyNthead64->FileHeader);
+						SizeFileHeaderSizeOfOptionalHeader = CopyNthead64->FileHeader.SizeOfOptionalHeader;
+					}
+					else {
+						PIMAGE_NT_HEADERS32 CopyNthead32 = (PIMAGE_NT_HEADERS32)CopyNthead;
+						BaseOfCode = CopyNthead32->OptionalHeader.BaseOfCode;
+						SizeOfCode = CopyNthead32->OptionalHeader.SizeOfCode;
+						SizeSignature = sizeof(CopyNthead32->Signature);
+						SizeFileHeader = sizeof(CopyNthead32->FileHeader);
+						SizeFileHeaderSizeOfOptionalHeader = CopyNthead32->FileHeader.SizeOfOptionalHeader;
+					}
+					PIMAGE_SECTION_HEADER SectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)CopyNthead + SizeSignature + SizeFileHeader + SizeFileHeaderSizeOfOptionalHeader);
 					int FoundNum = 0;
 					for (WORD i = 0; i < CopyNthead->FileHeader.NumberOfSections; i++)
 					{
 						if (SectionHeader[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) {
 							FoundNum++;
 						}
-						if (FoundNum > 1) {
+						if (FoundNum > 3) {
 							printf("\t => [进程检测] 检测到额外的可执行区段(.rdata免杀 or 加壳程序) 进程名 %ws 路径 %ws 进程id %d\n", pMoudleName, moduleEntry.szExePath, pID);
 							break;
 						}
+						
 					}
 				}
 			}
+			*/
 
 		} while (Module32Next(handle, &moduleEntry));
 		VirtualFree(AllocBuff, 0, MEM_RELEASE);
@@ -305,7 +380,6 @@ void ProcessStackWalk() {
 						printf("\t => [进程扫描] 检测到可疑签名进程 路径 %ws static %d \n", pszFullPath, dDigitalState);
 					}
 					WalkProcessMoudle(pe32.th32ProcessID, hProcess, pe32.szExeFile, dDigitalState == DIGITAL_SIGSTATE_VALID);
-
 				}
 			}
 			CloseHandle(hProcess);
