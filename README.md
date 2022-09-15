@@ -3,6 +3,11 @@
 !!!本程序需要64位编译才能回溯x64的程序堆栈,请勿执行32位编译!!!
 !!!本工具不能代替杀毒软件!!!
 
+# 本项目不再维护
+请转到更先进的项目里:  
+https://github.com/RoomaSec/RmEye  
+https://github.com/RoomaSec/RmTools
+
 # 运行截图
 ![image](https://raw.githubusercontent.com/huoji120/DuckMemoryScan/master/%E6%BC%94%E7%A4%BA%E5%9B%BE%E7%89%87.png)
 ![image](https://raw.githubusercontent.com/huoji120/DuckMemoryScan/master/CS%e6%b5%8b%e8%af%95%e5%9b%be%e7%89%87.png)
